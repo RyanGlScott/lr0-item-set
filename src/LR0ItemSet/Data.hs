@@ -1,10 +1,24 @@
 {-# LANGUAGE ConstraintKinds, GeneralizedNewtypeDeriving #-}
-module LR0ItemSet.Data where
+module LR0ItemSet.Data (
+    Terminal(..)
+  , isTermChar
+  , Nonterminal(..)
+  , Symbol(..)
+  , symbolToChar
+  , SentForm
+  , Production(..)
+  , DotProduction(..)
+  , dottify
+  , Grammar(..)
+  , Items(..)
+  , LR0MonadWriter
+  , LR0Writer
+  , execLR0Writer
+  ) where
 
 import Control.Monad.Writer
 
 import Data.Char
-import Data.Set (Set)
 import Data.Text (Text)
 import Data.Text.Lazy (toStrict)
 import Data.Text.Lazy.Builder
@@ -19,19 +33,11 @@ instance Show Terminal where
 isTermChar :: Char -> Bool
 isTermChar c = not $ any ($ c) [isUpper, (=='@'), (=='\'')]
 
--- terminal :: Char -> Terminal
--- terminal c | isTermChar c = Term c
--- terminal _ = error "Terminals cannot be uppercase letters, at signs, or single quotes."
-
 newtype Nonterminal = Nonterm Char
   deriving (Bounded, Enum, Eq, Ord)
 
 instance Show Nonterminal where
     showsPrec _ (Nonterm n) = showChar n
-
--- nonterminal :: Char -> Nonterminal
--- nonterminal c | isUpper c = Nonterm c
--- nonterminal _ = error "Nonterminals must be uppercase letters."
 
 data Symbol = SymbolNonterm Nonterminal | SymbolTerm Terminal
   deriving (Eq, Ord)
@@ -42,6 +48,10 @@ instance Show Symbol where
     
     showList []     e = e
     showList (s:ss) e = shows s $ showList ss e
+
+symbolToChar :: Symbol -> Char
+symbolToChar (SymbolNonterm (Nonterm c)) = c
+symbolToChar (SymbolTerm    (Term    c)) = c
 
 type SentForm = [Symbol]
 
@@ -68,15 +78,8 @@ instance Show DotProduction where
                                                    . showChar '@'
                                                    . shows postRhs
 
--- ppProduction :: Production -> Builder
--- ppProduction (lhs, rhs) = fromString (show lhs)
---                        <> "->"
---                        <> fromString (concatMap show rhs)
-
--- data ItemSet = ItemSet {
---     itemSetNum :: Word
---   , itemSet    :: Set [DotProduction]
--- } deriving (Eq, Ord, Show)
+dottify :: Production -> DotProduction
+dottify (Production lhs rhs) = DotProduction lhs [] rhs
 
 data Grammar = Grammar {
     gStartVariable :: Nonterminal
@@ -85,25 +88,11 @@ data Grammar = Grammar {
 
 data Items = Items {
     itemsNum         :: Word
-  , itemsProductions :: [Production]
-} deriving (Ord, Show)
-
-instance Eq Items where
-    (Items _ ips1) == (Items _ ips2) = ips1 == ips2
-
--- data DotGrammar = DotGrammar {
---     dgStartVariable :: Nonterminal
---   , dgProductions   :: [DotProduction]
--- } deriving (Eq, Ord, Show)
-
--- dottify :: Grammar -> DotGrammar
--- dottify (Grammar sv ps) = DotGrammar sv $ map (\(lhs, rhs) -> (lhs, [], rhs)) ps
+  , itemsProductions :: [DotProduction]
+} deriving (Eq, Ord, Show)
 
 type LR0MonadWriter = MonadWriter Builder
 type LR0Writer = Writer Builder
-
-runLR0Writer :: LR0Writer a -> (a, Text)
-runLR0Writer = fmap (toStrict . toLazyText) . runWriter
 
 execLR0Writer :: LR0Writer a -> Text
 execLR0Writer = toStrict . toLazyText . execWriter
