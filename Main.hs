@@ -1,31 +1,49 @@
 {-
-The algorithms used for constructing the set of LR(0) items from a DCFG.
-This was created as Project 2 for EECS 665 at the University of Kansas.
+Constructs the set of LR(0) parse table items from a deterministic context-free
+grammar. This was created as Project 2 for EECS 665 at the University of Kansas.
 
 Author: Ryan Scott
 -}
 
-{-# LANGUAGE FlexibleContexts, OverloadedStrings #-}
-module LR0ItemSet.Algorithm (
-    lr0ItemSet
-  , augment
-  , closure
-  , goto
-  ) where
+{-# LANGUAGE ConstraintKinds, FlexibleContexts, GeneralizedNewtypeDeriving, OverloadedStrings #-}
+module Main (main) where
 
+import           Control.Applicative hiding ((<|>))
 import           Control.Monad
 import           Control.Monad.Writer
 
+import           Data.Char
 import           Data.List
 import           Data.Maybe
 import qualified Data.Set as S
 import           Data.Set (Set)
+import           Data.Text (Text)
+import           Data.Text.IO (putStr)
+import           Data.Text.Lazy (toStrict)
 import           Data.Text.Lazy.Builder
 import           Data.Text.Lazy.Builder.Int
+import           Data.Word
 
-import           LR0ItemSet.Data
+import           Prelude hiding (putStr)
 
+import           Text.Parsec
+import           Text.Parsec.String
 import           Text.Printf
+
+-- | Where the program begins
+main :: IO ()
+main = do
+    -- Parse standard input
+    stuff <- getContents
+    case parse parseGrammar "" stuff of
+         -- If unsuccessful, abort with an error message.
+         Left e  -> print e
+         -- Otherwise, find the LR(0) item set and print the results.
+         Right g -> putStr . execLR0Writer $ lr0ItemSet g
+
+---------------------------------------------------------------------------------------------------
+-- The algorithms used for constructing the set of LR(0) items from a DCFG.
+---------------------------------------------------------------------------------------------------
 
 -- | Constructs the set of LR(0) parse table items from a DCFG.
 lr0ItemSet :: LR0MonadWriter m => Grammar -> m (Set Items)
@@ -141,3 +159,122 @@ goto g i x = closure g [ DotProduction a (alpha ++ [x]) beta
                        | DotProduction a alpha (x':beta) <- i
                        , x == x'
                        ]
+
+---------------------------------------------------------------------------------------------------
+-- The data structures used for constructing the set of LR(0) items from a DCFG.
+---------------------------------------------------------------------------------------------------
+
+-- | A non-uppercase, non-@, non-' symbol (e.g., i).
+newtype Terminal = Term Char
+  deriving (Bounded, Enum, Eq, Ord)
+
+instance Show Terminal where
+    showsPrec _ (Term t) = showChar t
+
+-- | Can this character reprent a Terminal?
+isTermChar :: Char -> Bool
+isTermChar c = not $ any ($ c) [isUpper, (=='@'), (=='\'')]
+
+-- | An uppercase symbol (e.g., E).
+newtype Nonterminal = Nonterm Char
+  deriving (Bounded, Enum, Eq, Ord)
+
+instance Show Nonterminal where
+    showsPrec _ (Nonterm n) = showChar n
+
+-- A single letter in a sentential form (i.e., either a Terminal or a Nonterminal).
+data Symbol = SymbolNonterm Nonterminal | SymbolTerm Terminal
+  deriving (Eq, Ord)
+
+instance Show Symbol where
+    showsPrec k (SymbolNonterm n) = showsPrec k n
+    showsPrec k (SymbolTerm t)    = showsPrec k t
+    
+    showList []     e = e
+    showList (s:ss) e = shows s $ showList ss e
+
+-- | Extracts the character representing a Symbol.
+symbolToChar :: Symbol -> Char
+symbolToChar (SymbolNonterm (Nonterm c)) = c
+symbolToChar (SymbolTerm    (Term    c)) = c
+
+-- | The right-hand side of a production.
+type SentForm = [Symbol]
+
+-- | A DCFG production (e.g., E->E+F).
+data Production = Production Nonterminal SentForm
+  deriving (Eq, Ord)
+
+instance Show Production where
+    showsPrec _ (Production lhs rhs) = shows lhs
+                                     . showString "->"
+                                     . shows rhs
+
+-- | A DCFG production with a dot on the right-hand side (e.g., E->E@+F).
+data DotProduction = DotProduction Nonterminal SentForm SentForm
+  deriving (Eq, Ord)
+
+instance Show DotProduction where
+    showsPrec _ (DotProduction lhs preRhs postRhs) = shows lhs
+                                                   . showString "->"
+                                                   . shows preRhs
+                                                   . showChar '@'
+                                                   . shows postRhs
+
+-- | Places a dot in front of the right-hand side of a DCFG production.
+--   (e.g., E->E+F to E->@E+F).
+dottify :: Production -> DotProduction
+dottify (Production lhs rhs) = DotProduction lhs [] rhs
+
+-- | A deterministic context-free grammar.
+data Grammar = Grammar {
+    _gStartVariable :: Nonterminal
+  , gProductions   :: [Production]
+} deriving (Eq, Ord, Show)
+
+-- | A set of DCFG productions, labeled with a nonnegative integer.
+data Items = Items {
+    itemsNum         :: Word
+  , itemsProductions :: [DotProduction]
+} deriving (Eq, Ord, Show)
+
+-- | Specialized Writer monad types used for logging while constructing the set
+--   of LR(0) parse table items.
+type LR0MonadWriter = MonadWriter Builder
+type LR0Writer = Writer Builder
+
+-- | Extract the logging output from an LR0Writer.
+execLR0Writer :: LR0Writer a -> Text
+execLR0Writer = toStrict . toLazyText . execWriter
+
+---------------------------------------------------------------------------------------------------
+-- The parser combinators used when reading in input as a DCFG.
+---------------------------------------------------------------------------------------------------
+
+-- | Parses an uppercase letter as a nonterminal.
+parseNonterminal :: Parser Nonterminal
+parseNonterminal = Nonterm <$> satisfy isUpper
+
+-- | Parses a non-uppercase, non-@, non-' character as a terminal.
+parseTerminal :: Parser Terminal
+parseTerminal = Term <$> satisfy isTermChar
+
+-- | Parses either a nonterminal or a terminal.
+parseSymbol :: Parser Symbol
+parseSymbol = (SymbolTerm <$> try parseTerminal)
+          <|> (SymbolNonterm <$> parseNonterminal)
+
+-- | Parses a production (i.e., E->E+T or T->).
+parseProduction :: Parser Production
+parseProduction = Production
+    <$> parseNonterminal
+    <*  string "->"
+    -- Read symbols until a newline is encountered
+    <*> manyTill parseSymbol newline
+
+-- | Parses an entire deterministic context-free grammar.
+parseGrammar :: Parser Grammar
+parseGrammar = Grammar
+    <$> parseNonterminal
+    <*  spaces
+    <*> manyTill parseProduction (try $ spaces *> eof)
