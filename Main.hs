@@ -270,11 +270,11 @@ parseProduction = Production
     <$> parseNonterminal
     <*  string "->"
     -- Read symbols until a newline is encountered
-    <*> manyTill parseSymbol (void endOfLine <|> eof)
+    <*> manyTill parseSymbol (void newline <|> eof)
 
 -- | Parses an entire deterministic context-free grammar.
 parseGrammar :: Parser Grammar
 parseGrammar = Grammar
     <$> parseNonterminal
     <*  spaces
-    <*> manyTill parseProduction (try $ many endOfLine *> eof)
+    <*> manyTill parseProduction (try $ many newline *> eof)
