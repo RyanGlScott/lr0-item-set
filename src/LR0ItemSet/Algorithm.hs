@@ -123,13 +123,13 @@ augment (Grammar sv ps) = Grammar sv $ Production (Nonterm '\'') [SymbolNonterm 
 -- | Computes the dot-closure of a set of dotted DCFG productions.
 closure :: Grammar -> [DotProduction] -> [DotProduction]
 closure g jps =
-    let jps' = jps ++ [ dotGp
-                      | DotProduction _ _ (SymbolNonterm b:_) <- jps
-                      , Production b' gamma <- gProductions g
-                      , b == b'
-                      , let dotGp = DotProduction b' [] gamma
-                      , not $ dotGp `elem` jps
-                      ]
+    let jps' = jps ++ nub [ dotGp
+                          | DotProduction _ _ (SymbolNonterm b:_) <- jps
+                          , Production b' gamma <- gProductions g
+                          , b == b'
+                          , let dotGp = DotProduction b' [] gamma
+                          , not $ dotGp `elem` jps
+                          ]
      in if jps == jps'
            then jps'
            else closure g jps'
