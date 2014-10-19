@@ -7,9 +7,10 @@ Author: Ryan Scott
 
 module LR0ItemSet.Parse (parseGrammar) where
 
-import Control.Applicative hiding ((<|>))
+import Control.Applicative hiding ((<|>), many)
 
 import Data.Char
+import Data.Functor
 
 import LR0ItemSet.Data
 
@@ -35,11 +36,11 @@ parseProduction = Production
     <$> parseNonterminal
     <*  string "->"
     -- Read symbols until a newline is encountered
-    <*> manyTill parseSymbol newline
+    <*> manyTill parseSymbol (void endOfLine <|> eof)
 
 -- | Parses an entire deterministic context-free grammar.
 parseGrammar :: Parser Grammar
 parseGrammar = Grammar
     <$> parseNonterminal
     <*  spaces
-    <*> manyTill parseProduction (try $ spaces *> eof)
+    <*> manyTill parseProduction (try $ many endOfLine *> eof)
