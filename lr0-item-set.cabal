@@ -21,7 +21,7 @@ executable lr0-item-set
   build-depends:       base >= 4 && < 4.8
                      , containers
                      , mtl
-                     , parsec
+                     , parsec >= 3.1.6
                      , text
                      , transformers
   hs-source-dirs:      src
